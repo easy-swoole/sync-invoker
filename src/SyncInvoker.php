@@ -31,8 +31,9 @@ class SyncInvoker
         return $this;
     }
 
-    public function client(?int $workerId = null)
+    public function client(?int $workerId = null):Client
     {
-
+        $sock = '';
+        return new $this->client($sock);
     }
 }
