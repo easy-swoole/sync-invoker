@@ -43,14 +43,14 @@ class SyncInvoker
         return $this;
     }
 
-    public function client(?int $workerId = null):Client
+    public function client(?int $workerId = null,float $timeout = 3):Client
     {
         if(empty($workerId)){
             mt_srand();
             $workerId = rand(1,$this->workerNum);
         }
         $socket = $this->tempDir.'/'.md5(static::class)."{$workerId}.sock";
-        return new $this->client($socket);
+        return new $this->client($socket,$timeout);
     }
 
     public function generateProcess():array
