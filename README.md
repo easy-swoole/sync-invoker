@@ -10,12 +10,19 @@ EasySwoole 提供了一个同步程序协程调用转化驱动。
 ## 示例代码
 
 ```
-
 use EasySwoole\SyncInvoker\AbstractInvoker;
 use EasySwoole\SyncInvoker\SyncInvoker;
 use EasySwoole\Component\Singleton;
 
 class MySync extends AbstractInvoker{
+
+    private $stdclass;
+
+    function __construct()
+    {
+        $this->stdclass = new \stdClass();
+        parent::__construct();
+    }
 
     public function test($a,$b)
     {
@@ -27,7 +34,10 @@ class MySync extends AbstractInvoker{
         return 'this is a';
     }
 
-
+    public function getStdClass()
+    {
+        return $this->stdclass;
+    }
 }
 
 class MySyncInvoker extends SyncInvoker
@@ -45,12 +55,21 @@ MySyncInvoker::getInstance()->attachServer($http);
 
 $http->on("request", function ($request, $response) {
     $ret = MySyncInvoker::getInstance()->client()->test(1,2);
+    var_dump($ret);
     var_dump(MySyncInvoker::getInstance()->client()->a());
     var_dump(MySyncInvoker::getInstance()->client()->a(1));
     var_dump(MySyncInvoker::getInstance()->client()->fuck());
+    $ret = MySyncInvoker::getInstance()->client()->callback(function (MySync $mySync){
+        $std = $mySync->getStdClass();
+        if(isset($std->time)){
+            return $std->time;
+        }else{
+            $std->time = time();
+            return 'new set time';
+        }
+    });
     $response->end($ret);
 });
 
 $http->start();
-
 ```

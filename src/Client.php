@@ -4,6 +4,9 @@
 namespace EasySwoole\SyncInvoker;
 
 
+use EasySwoole\Component\SuperClosure;
+use SuperClosure\Serializer;
+
 class Client
 {
     private $sock;
@@ -28,5 +31,13 @@ class Client
             return unserialize($data);
         }
         return null;
+    }
+
+    public function callback(callable $call)
+    {
+        if($call instanceof \Closure){
+            $call = new SuperClosure($call);
+        }
+        return $this->__call('callback',[$call]);
     }
 }
