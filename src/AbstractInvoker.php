@@ -59,7 +59,7 @@ abstract class AbstractInvoker
     }
 
     protected function onException(\Throwable $throwable){
-        return $throwable->getMessage();
+        return "{$throwable->getMessage()} at file {$throwable->getFile()} line {$throwable->getLine()}";
     }
 
     public function callback(?callable $callback)
