@@ -26,7 +26,7 @@ class Client
         $data = $client->recv($this->timeout);
         if($data){
             $data = Protocol::unpack($data);
-            return unserialize($data);
+            return \Opis\Closure\unserialize($data);
         }
         return null;
     }

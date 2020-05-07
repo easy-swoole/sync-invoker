@@ -49,7 +49,7 @@ class SyncInvoker
             mt_srand();
             $workerId = rand(1,$this->workerNum);
         }
-        $socket = $this->tempDir.'/'.md5(static::class)."{$workerId}.sock";
+        $socket = $this->tempDir."/SyncInvoker.Worker.{$workerId}.sock";
         return new $this->client($socket,$timeout);
     }
 

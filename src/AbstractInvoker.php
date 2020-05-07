@@ -3,6 +3,7 @@
 
 namespace EasySwoole\SyncInvoker;
 
+use EasySwoole\SyncInvoker\FakeException\MethodNotFound;
 
 abstract class AbstractInvoker
 {
@@ -56,8 +57,14 @@ abstract class AbstractInvoker
         return "method {$this->getCommand()->getAction()} not exit";
     }
 
-    protected function onException(\Throwable $throwable){
-        return "{$throwable->getMessage()} at file {$throwable->getFile()} line {$throwable->getLine()}";
+    protected function onException(\Throwable $throwable)
+    {
+        $ret = new FakeException\Exception($throwable->getMessage());
+        $ret->setFile($throwable->getFile());
+        $ret->setLine($throwable->getLine());
+        $ret->setCode($throwable->getCode());
+        $ret->setTrace($throwable->getTrace());
+        return $ret;
     }
 
     public function callback(?callable $callback)

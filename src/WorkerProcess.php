@@ -26,7 +26,7 @@ class WorkerProcess extends AbstractUnixProcess
             if($command instanceof Command){
                 $reply = $invoker->__hook($command);
             }
-            $socket->sendAll(Protocol::pack(serialize($reply)));
+            $socket->sendAll(Protocol::pack(\Opis\Closure\serialize($reply)));
             $socket->close();
         }else{
             $socket->close();
