@@ -4,8 +4,6 @@
 namespace EasySwoole\SyncInvoker;
 
 
-use EasySwoole\Component\SuperClosure;
-
 abstract class AbstractInvoker
 {
     private $allowMethods = [];
@@ -64,9 +62,7 @@ abstract class AbstractInvoker
 
     public function callback(?callable $callback)
     {
-        if($callback instanceof SuperClosure){
-            return $callback->call($this);
-        }else if(is_callable($callback)){
+        if(is_callable($callback)){
             return call_user_func($callback,$this);
         }else{
             return null;

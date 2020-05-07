@@ -58,8 +58,9 @@ class SyncInvoker
         $ret = [];
         for ($i = 1;$i <= $this->workerNum;$i++){
             $config = new UnixProcessConfig();
-            $config->setProcessName('SyncInvoker');
-            $socket = $this->tempDir.'/'.md5(static::class)."{$i}.sock";
+            $config->setProcessGroup('SyncInvoker');
+            $config->setProcessName("SyncInvoker.Worker.{$i}");
+            $socket = $this->tempDir."/SyncInvoker.Worker.{$i}.sock";
             $config->setSocketFile($socket);
             $config->setArg($this->invoker);
             $ret[] = new WorkerProcess($config);

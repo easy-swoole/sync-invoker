@@ -21,7 +21,7 @@ class WorkerProcess extends AbstractUnixProcess
         $allLength = Protocol::packDataLength($header);
         $data = $socket->recvAll($allLength,1);
         if(strlen($data) == $allLength){
-            $command = unserialize($data);
+            $command = \Opis\Closure\unserialize($data);
             $reply = null;
             if($command instanceof Command){
                 $reply = $invoker->__hook($command);
