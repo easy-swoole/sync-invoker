@@ -1,7 +1,7 @@
 <?php
 
 
-namespace EasySwoole\SyncInvoker\FakeException;
+namespace EasySwoole\SyncInvoker\Exception;
 
 
 class MethodNotFound extends Exception
