@@ -21,16 +21,20 @@ class WorkerProcess extends AbstractUnixProcess
         $allLength = Protocol::packDataLength($header);
         $data = $socket->recvAll($allLength,1);
         if(strlen($data) == $allLength){
-            $command = \Opis\Closure\unserialize($data);
-            $reply = null;
-            if($command instanceof Command){
-                $reply = $invoker->__hook($command);
+            try{
+                $command = \Opis\Closure\unserialize($data);
+                $reply = null;
+                if($command instanceof Command){
+                    $reply = $invoker->__hook($command);
+                }
+                $socket->sendAll(Protocol::pack(\Opis\Closure\serialize($reply)));
+            }catch (\Throwable $exception){
+                throw $exception;
+            } finally {
+                $socket->close();
             }
-            $socket->sendAll(Protocol::pack(\Opis\Closure\serialize($reply)));
-            $socket->close();
         }else{
             $socket->close();
-            return;
         }
     }
 }
