@@ -47,7 +47,7 @@ class SyncInvoker
     {
         if(empty($workerId)){
             mt_srand();
-            $workerId = rand(1,$this->workerNum);
+            $workerId = rand(0,$this->workerNum - 1);
         }
         $socket = $this->tempDir."/SyncInvoker.Worker.{$workerId}.sock";
         return new $this->client($socket,$timeout);
@@ -56,7 +56,7 @@ class SyncInvoker
     public function generateProcess():array
     {
         $ret = [];
-        for ($i = 1;$i <= $this->workerNum;$i++){
+        for ($i = 0;$i < $this->workerNum;$i++){
             $config = new UnixProcessConfig();
             $config->setProcessGroup('SyncInvoker');
             $config->setProcessName("SyncInvoker.Worker.{$i}");
