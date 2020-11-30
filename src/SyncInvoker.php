@@ -53,7 +53,7 @@ class SyncInvoker
             $workerId = rand(0,$this->workerNum - 1);
         }
         $socket = $this->tempDir."/SyncInvoker.Worker.{$workerId}.sock";
-        if($this->client){
+        if(!$this->client){
             $this->client = new Client($socket,$timeout,$this->maxPackageSize);
         }
         return $this->client;
