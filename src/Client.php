@@ -5,15 +5,17 @@ namespace EasySwoole\SyncInvoker;
 
 
 
-class Client
+class Client extends AbstractClient
 {
     private $sock;
     private $timeout;
+    private $maxPackageSize;
 
-    final public function __construct(string $sock,float $timeout)
+    public function __construct(string $sock, float $timeout, int $maxPackageSize)
     {
         $this->sock = $sock;
         $this->timeout = $timeout;
+        $this->maxPackageSize = $maxPackageSize;
     }
 
     public function __call($name, $arguments)
@@ -21,7 +23,7 @@ class Client
         $command = new Command();
         $command->setArg($arguments);
         $command->setAction($name);
-        $client = new UnixClient($this->sock);
+        $client = new UnixClient($this->sock,$this->maxPackageSize);
         $client->send(Protocol::pack(\Opis\Closure\serialize($command)));
         $data = $client->recv($this->timeout);
         if($data){
@@ -29,10 +31,5 @@ class Client
             return \Opis\Closure\unserialize($data);
         }
         return null;
-    }
-
-    public function callback(callable $call)
-    {
-        return $this->__call('callback',[$call]);
     }
 }

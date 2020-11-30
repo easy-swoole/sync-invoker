@@ -9,7 +9,7 @@ use Swoole\Coroutine\Client;
 class UnixClient
 {
     private $client = null;
-    function __construct(string $unixSock)
+    function __construct(string $unixSock,int $maxPackageSize)
     {
         $this->client = new Client(SWOOLE_UNIX_STREAM);
         $this->client->set(
@@ -18,7 +18,7 @@ class UnixClient
                 'package_length_type'   => 'N',
                 'package_length_offset' => 0,
                 'package_body_offset'   => 4,
-                'package_max_length'    => 1024*1024
+                'package_max_length'    => $maxPackageSize
             ]
         );
         $this->client->connect($unixSock,null,3);

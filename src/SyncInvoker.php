@@ -9,10 +9,11 @@ use EasySwoole\Component\Process\Socket\UnixProcessConfig;
 
 class SyncInvoker
 {
-    private $client = Client::class;
+    private $client = null;
     private $workerNum = 3;
     private $tempDir;
     private $invoker;
+    private $maxPackageSize = 1024*1024*10;//10M
 
     public function __construct(AbstractInvoker $worker)
     {
@@ -20,15 +21,17 @@ class SyncInvoker
         $this->tempDir = sys_get_temp_dir();
     }
 
-    public function setClientClass(string $class)
+    /**
+     * @param float|int $maxPackageSize
+     */
+    public function setMaxPackageSize($maxPackageSize): void
     {
-        $ref = new \ReflectionClass($class);
-        if($ref->isSubclassOf(Client::class)){
-            $this->client = $class;
-            return true;
-        }else{
-            return false;
-        }
+        $this->maxPackageSize = $maxPackageSize;
+    }
+
+    public function setClient(AbstractClient  $client)
+    {
+        $this->client = $client;
     }
 
     public function setTempDir(string $dir)
@@ -43,14 +46,17 @@ class SyncInvoker
         return $this;
     }
 
-    public function client(?int $workerId = null,float $timeout = 3):Client
+    public function client(?int $workerId = null,float $timeout = 3):AbstractClient
     {
-        if(empty($workerId)){
+        if($workerId === null){
             mt_srand();
             $workerId = rand(0,$this->workerNum - 1);
         }
         $socket = $this->tempDir."/SyncInvoker.Worker.{$workerId}.sock";
-        return new $this->client($socket,$timeout);
+        if($this->client){
+            $this->client = new Client($socket,$timeout,$this->maxPackageSize);
+        }
+        return $this->client;
     }
 
     public function generateProcess():array
