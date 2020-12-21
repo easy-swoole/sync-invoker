@@ -9,10 +9,10 @@ EasySwoole 提供了一个同步程序协程调用转化驱动。
 
 ## 示例代码
 
-```
+```php
 use EasySwoole\SyncInvoker\AbstractDriver;
 use EasySwoole\SyncInvoker\SyncInvoker;
-
+use EasySwoole\SyncInvoker\Worker;
 require 'vendor/autoload.php';
 
 class Driver extends AbstractDriver
@@ -31,6 +31,9 @@ class Driver extends AbstractDriver
 
 $invoker = new SyncInvoker();
 $invoker->getConfig()->setDriver(new Driver());
+$invoker->getConfig()->setOnWorkerStart(function (Worker $worker){
+    var_dump('worker start at Id '.$worker->getArg()['workerIndex']);
+});
 
 $http = new swoole_http_server("0.0.0.0", 9501);
 

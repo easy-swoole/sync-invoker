@@ -15,6 +15,8 @@ class Config extends SplBean
     protected $driver;
     protected $maxPackageSize = 1024*1024*2;
     protected $timeout = 3.0;
+    /** @var callable|null */
+    protected $onWorkerStart;
     /**
      * @return int
      */
@@ -109,6 +111,22 @@ class Config extends SplBean
     public function setTimeout(float $timeout): void
     {
         $this->timeout = $timeout;
+    }
+
+    /**
+     * @return callable|null
+     */
+    public function getOnWorkerStart(): ?callable
+    {
+        return $this->onWorkerStart;
+    }
+
+    /**
+     * @param callable|null $onWorkerStart
+     */
+    public function setOnWorkerStart(?callable $onWorkerStart): void
+    {
+        $this->onWorkerStart = $onWorkerStart;
     }
 
     protected function initialize(): void

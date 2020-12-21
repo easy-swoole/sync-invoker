@@ -33,7 +33,10 @@ class SyncInvoker
             $config->setProcessGroup("{$this->config->getServerName()}.SyncInvoker");
             $config->setProcessName("{$this->config->getServerName()}.SyncInvoker.Worker.{$i}");
             $config->setSocketFile($this->getSocket($i));
-            $config->setArg($this->config);
+            $config->setArg([
+                'workerIndex'=>$i,
+                'config'=>$this->config
+            ]);
             $ret[] = new Worker($config);
         }
         return $ret;

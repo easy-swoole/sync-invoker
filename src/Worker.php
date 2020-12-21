@@ -9,10 +9,22 @@ use Swoole\Coroutine\Socket;
 
 class Worker extends AbstractUnixProcess
 {
+    private $config;
+    function run($arg)
+    {
+        /** @var Config $config */
+        $config = $arg['config'];
+        $this->config = $config;
+        if(is_callable($config->getOnWorkerStart())){
+            call_user_func($config->getOnWorkerStart(),$this);
+        }
+        parent::run($arg);
+    }
+
     function onAccept(Socket $socket)
     {
         /** @var Config $config */
-        $config = $this->getConfig()->getArg();
+        $config = $this->config;
         $header = $socket->recvAll(4,1);
         if(strlen($header) != 4){
             $socket->close();
