@@ -17,6 +17,7 @@ class Config extends SplBean
     protected $timeout = 3.0;
     /** @var callable|null */
     protected $onWorkerStart;
+    protected $asyncAccept = true;
     /**
      * @return int
      */
@@ -127,6 +128,22 @@ class Config extends SplBean
     public function setOnWorkerStart(?callable $onWorkerStart): void
     {
         $this->onWorkerStart = $onWorkerStart;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isAsyncAccept(): bool
+    {
+        return $this->asyncAccept;
+    }
+
+    /**
+     * @param bool $asyncAccept
+     */
+    public function setAsyncAccept(bool $asyncAccept): void
+    {
+        $this->asyncAccept = $asyncAccept;
     }
 
     protected function initialize(): void
