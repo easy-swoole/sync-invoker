@@ -9,7 +9,8 @@ use Swoole\Coroutine\Client;
 class UnixClient
 {
     private $client = null;
-    function __construct(string $unixSock,int $maxPackageSize)
+
+    function __construct(string $unixSock,int $maxPackageSize,float $timeout)
     {
         $this->client = new Client(SWOOLE_UNIX_STREAM);
         $this->client->set(
@@ -18,18 +19,20 @@ class UnixClient
                 'package_length_type'   => 'N',
                 'package_length_offset' => 0,
                 'package_body_offset'   => 4,
-                'package_max_length'    => $maxPackageSize
+                'package_max_length'    => $maxPackageSize,
+                'timeout'=>$timeout
             ]
         );
         $this->client->connect($unixSock,null,3);
     }
+
     function __destruct()
     {
-        // TODO: Implement __destruct() method.
         if($this->client->isConnected()){
             $this->client->close();
         }
     }
+
     function send(string $rawData)
     {
         if($this->client->isConnected()){
@@ -38,6 +41,7 @@ class UnixClient
             return false;
         }
     }
+
     function recv(float $timeout = 0.1)
     {
         if($this->client->isConnected()){

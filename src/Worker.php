@@ -7,12 +7,12 @@ namespace EasySwoole\SyncInvoker;
 use EasySwoole\Component\Process\Socket\AbstractUnixProcess;
 use Swoole\Coroutine\Socket;
 
-class WorkerProcess extends AbstractUnixProcess
+class Worker extends AbstractUnixProcess
 {
     function onAccept(Socket $socket)
     {
-        /** @var AbstractInvoker $invoker */
-        $invoker = $this->getConfig()->getArg();
+        /** @var Config $config */
+        $config = $this->getConfig()->getArg();
         $header = $socket->recvAll(4,1);
         if(strlen($header) != 4){
             $socket->close();
@@ -25,7 +25,8 @@ class WorkerProcess extends AbstractUnixProcess
                 $command = \Opis\Closure\unserialize($data);
                 $reply = null;
                 if($command instanceof Command){
-                    $reply = $invoker->__hook($command);
+                    $driver = clone $config->getDriver();
+                    $reply = $driver->__hook($command);
                 }
                 $socket->sendAll(Protocol::pack(\Opis\Closure\serialize($reply)));
             }catch (\Throwable $exception){

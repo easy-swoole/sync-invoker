@@ -6,78 +6,57 @@ namespace EasySwoole\SyncInvoker;
 
 use EasySwoole\Component\Process\Socket\AbstractUnixProcess;
 use EasySwoole\Component\Process\Socket\UnixProcessConfig;
+use Swoole\Server;
 
 class SyncInvoker
 {
-    private $client = null;
-    private $workerNum = 3;
-    private $tempDir;
-    private $invoker;
-    private $maxPackageSize = 1024*1024*10;//10M
+    protected $config;
 
-    public function __construct(AbstractInvoker $worker)
+    public function __construct(Config $config = null)
     {
-        $this->invoker = $worker;
-        $this->tempDir = sys_get_temp_dir();
-    }
-
-    /**
-     * @param float|int $maxPackageSize
-     */
-    public function setMaxPackageSize($maxPackageSize): void
-    {
-        $this->maxPackageSize = $maxPackageSize;
-    }
-
-    public function setClient(AbstractClient  $client)
-    {
-        $this->client = $client;
-    }
-
-    public function setTempDir(string $dir)
-    {
-        $this->tempDir = $dir;
-        return $this;
-    }
-
-    public function setWorkerNum(int $num):SyncInvoker
-    {
-        $this->workerNum = $num;
-        return $this;
-    }
-
-    public function client(?int $workerId = null,float $timeout = 3):AbstractClient
-    {
-        if($workerId === null){
-            mt_srand();
-            $workerId = rand(0,$this->workerNum - 1);
+        if($config == null){
+            $config = new Config();
         }
-        $socket = $this->tempDir."/SyncInvoker.Worker.{$workerId}.sock";
-        if(!$this->client){
-            $this->client = new Client($socket,$timeout,$this->maxPackageSize);
-        }
-        return $this->client;
+        $this->config = $config;
     }
 
-    public function generateProcess():array
+    function getConfig():Config
+    {
+        return $this->config;
+    }
+
+    public function __generateWorkerProcess():array
     {
         $ret = [];
-        for ($i = 0;$i < $this->workerNum;$i++){
+        for ($i = 0;$i < $this->config->getWorkerNum();$i++){
             $config = new UnixProcessConfig();
-            $config->setProcessGroup('SyncInvoker');
-            $config->setProcessName("SyncInvoker.Worker.{$i}");
-            $socket = $this->tempDir."/SyncInvoker.Worker.{$i}.sock";
-            $config->setSocketFile($socket);
-            $config->setArg($this->invoker);
-            $ret[] = new WorkerProcess($config);
+            $config->setProcessGroup("{$this->config->getServerName()}.SyncInvoker");
+            $config->setProcessName("{$this->config->getServerName()}.SyncInvoker.Worker.{$i}");
+            $config->setSocketFile($this->getSocket($i));
+            $config->setArg($this->config);
+            $ret[] = new Worker($config);
         }
         return $ret;
     }
 
-
-    public function attachServer(\swoole_server $server)
+    function invoke(float $timeout = null)
     {
-        $list = $this->generateProcess();
+        if($timeout === null){
+            $timeout = $this->config->getTimeout();
+        }
+        mt_srand(microtime(true));
+        $id = rand(0,$this->config->getWorkerNum() -1);
+        return new Client($this->getSocket($id),$this->getConfig()->getMaxPackageSize(),$timeout);
+    }
+
+    private function getSocket(int $index)
+    {
+        return "{$this->config->getTempDir()}/SyncInvoker.Worker.{$index}.sock";
+    }
+
+    public function attachServer(Server $server)
+    {
+        $list = $this->__generateWorkerProcess();
         /** @var AbstractUnixProcess $process */
         foreach ($list as $process){
             $server->addProcess($process->getProcess());

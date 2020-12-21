@@ -3,12 +3,13 @@
 
 namespace EasySwoole\SyncInvoker;
 
-use EasySwoole\SyncInvoker\Exception\MethodNotFound;
+use EasySwoole\SyncInvoker\Exception\Exception;
 
-abstract class AbstractInvoker
+abstract class AbstractDriver
 {
     private $allowMethods = [];
-    private $command;
+    private $request;
+    private $response;
 
     function __construct()
     {
@@ -26,35 +27,56 @@ abstract class AbstractInvoker
                 '__callStatic', '__get', '__set',
                 '__isset', '__unset', '__sleep',
                 '__wakeup', '__toString', '__invoke',
-                '__set_state', '__clone', '__debugInfo'
+                '__set_state', '__clone', '__debugInfo','response'
             ]
         );
     }
 
     function __hook(Command $command)
     {
-        $this->command = $command;
+        $this->request = $command;
         try {
+            if($this->onRequest($command) === false){
+                return $this->response;
+            }
             if (in_array($command->getAction(), $this->allowMethods)) {
                 $actionName = $command->getAction();
             } else {
-                $actionName = 'methodNotFound';
+                $actionName = 'actionNotFound';
             }
-            return call_user_func([$this,$actionName],...$command->getArg());
+            call_user_func([$this,$actionName],...$command->getArg());
+            $this->afterRequest();
+            return $this->response;
         } catch (\Throwable $throwable) {
-            //若没有重构onException，直接抛出给上层
-            return $this->onException($throwable);
+            $this->onException($throwable);
+            return $this->response;
         }
     }
 
-    protected function getCommand():Command
+
+    protected function onRequest(Command $command):bool
     {
-        return $this->command;
+        return true;
     }
 
-    protected function methodNotFound()
+    protected function afterRequest()
     {
-        throw new MethodNotFound("method {$this->getCommand()->getAction()} not exit");
+
+    }
+
+    protected function getRequest():Command
+    {
+        return $this->request;
+    }
+
+    function response($response): void
+    {
+        $this->response = $response;
+    }
+
+    protected function actionNotFound()
+    {
+        throw new Exception("action {$this->getRequest()->getAction()} not exit");
     }
 
     protected function onException(\Throwable $throwable)
@@ -65,9 +87,9 @@ abstract class AbstractInvoker
     public function callback(?callable $callback)
     {
         if(is_callable($callback)){
-            return call_user_func($callback,$this);
+            call_user_func($callback,$this);
         }else{
-            return null;
+            throw new Exception('callback method require a callable callback');
         }
     }
 }

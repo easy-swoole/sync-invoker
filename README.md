@@ -5,68 +5,46 @@ Swoole4.x后，提供了非常强大的协程能力，让我们可以更好的�
 EasySwoole 提供了一个同步程序协程调用转化驱动。
 
 ## 原理
-启动自定义进程监听UnixSocket，然后worker端调用协程客户端发送命令到自定义进程并处理，然后吧处理结果返回给worker的协程客户端。
+启动自定义进程监听UnixSocket，然后worker端调用协程客户端发送命令到自定义进程并处理，然后把处理结果返回给worker的协程客户端。
 
 ## 示例代码
 
 ```
-use EasySwoole\SyncInvoker\AbstractInvoker;
+use EasySwoole\SyncInvoker\AbstractDriver;
 use EasySwoole\SyncInvoker\SyncInvoker;
-use EasySwoole\Component\Singleton;
 
-class MySync extends AbstractInvoker{
+require 'vendor/autoload.php';
 
-    private $stdclass;
-
-    function __construct()
-    {
-        $this->stdclass = new \stdClass();
-        parent::__construct();
-    }
-
-    public function test($a,$b)
-    {
-        return $a+$b;
-    }
-
-    public function a()
-    {
-        return 'this is a';
-    }
-
-    public function getStdClass()
-    {
-        return $this->stdclass;
-    }
-}
-
-class MySyncInvoker extends SyncInvoker
+class Driver extends AbstractDriver
 {
-    use Singleton;
+    function plus($a,$b)
+    {
+        $this->response($a + $b);
+    }
+
+    protected function actionNotFound()
+    {
+        $this->response($this->getRequest()->getAction().' not found');
+    }
+
 }
 
-//实例化 MySyncInvoker
-
-MySyncInvoker::getInstance(new MySync());
+$invoker = new SyncInvoker();
+$invoker->getConfig()->setDriver(new Driver());
 
 $http = new swoole_http_server("0.0.0.0", 9501);
 
-MySyncInvoker::getInstance()->attachServer($http);
+$invoker->attachServer($http);
 
-$http->on("request", function ($request, $response) {
-    $ret = MySyncInvoker::getInstance()->client()->test(1,2);
+$http->on("request", function ($request, $response)use($invoker) {
+    $ret = $invoker->invoke()->plus(1,2);
     var_dump($ret);
-    var_dump(MySyncInvoker::getInstance()->client()->a());
-    var_dump(MySyncInvoker::getInstance()->client()->a(1));
-    var_dump(MySyncInvoker::getInstance()->client()->fuck());
-    $ret = MySyncInvoker::getInstance()->client()->callback(function (MySync $mySync){
-        $std = $mySync->getStdClass();
-        if(isset($std->time)){
-            return $std->time;
-        }else{
-            $std->time = time();
-            return 'new set time';
-        }
+
+    $ret = $invoker->invoke()->plus2(1,2);
+    var_dump($ret);
+
+    $ret = $invoker->invoke()->callback(function (Driver $mySync){
+        $mySync->response('this is callback');
     });
     $response->end($ret);
 });
