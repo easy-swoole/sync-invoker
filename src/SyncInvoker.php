@@ -47,7 +47,7 @@ class SyncInvoker
         if($timeout === null){
             $timeout = $this->config->getTimeout();
         }
-        mt_srand(microtime(true));
+        mt_srand();
         $id = rand(0,$this->config->getWorkerNum() -1);
         return new Client($this->getSocket($id),$this->getConfig()->getMaxPackageSize(),$timeout);
     }
