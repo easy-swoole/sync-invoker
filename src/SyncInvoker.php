@@ -33,6 +33,7 @@ class SyncInvoker
             $config->setProcessGroup("{$this->config->getServerName()}.SyncInvoker");
             $config->setProcessName("{$this->config->getServerName()}.SyncInvoker.Worker.{$i}");
             $config->setSocketFile($this->getSocket($i));
+            $config->setAsyncCallback($this->config->isAsyncAccept());
             $config->setArg([
                 'workerIndex'=>$i,
                 'config'=>$this->config
