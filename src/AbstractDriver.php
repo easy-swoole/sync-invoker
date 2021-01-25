@@ -87,7 +87,10 @@ abstract class AbstractDriver
     public function callback(?callable $callback)
     {
         if(is_callable($callback)){
-            call_user_func($callback,$this);
+            $ret = call_user_func($callback,$this);
+            if($ret !== null && $this->response === null){
+                $this->response = $ret;
+            }
         }else{
             throw new Exception('callback method require a callable callback');
         }
