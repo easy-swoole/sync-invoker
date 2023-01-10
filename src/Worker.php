@@ -34,13 +34,13 @@ class Worker extends AbstractUnixProcess
         $data = $socket->recvAll($allLength,1);
         if(strlen($data) == $allLength){
             try{
-                $command = \Opis\Closure\unserialize($data);
+                $command = unserialize($data);
                 $reply = null;
                 if($command instanceof Command){
                     $driver = clone $config->getDriver();
                     $reply = $driver->__hook($command);
                 }
-                $socket->sendAll(Protocol::pack(\Opis\Closure\serialize($reply)));
+                $socket->sendAll(Protocol::pack(serialize($reply)));
             }catch (\Throwable $exception){
                 throw $exception;
             } finally {
