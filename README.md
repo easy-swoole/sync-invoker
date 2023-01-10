@@ -45,12 +45,6 @@ $http->on("request", function ($request, $response)use($invoker) {
 
     $ret = $invoker->invoke()->plus2(1,2);
     var_dump($ret);
-
-    $ret = $invoker->invoke()->callback(function (Driver $mySync){
-        $mySync->response('this is callback');
-        //return 'this is callback';
-    });
-    $response->end($ret);
 });
 
 $http->start();

@@ -6,11 +6,14 @@ namespace EasySwoole\SyncInvoker;
 
 use EasySwoole\Component\Process\Socket\AbstractUnixProcess;
 use EasySwoole\Component\Process\Socket\UnixProcessConfig;
+use EasySwoole\SyncInvoker\Exception\Exception;
 use Swoole\Server;
 
 class SyncInvoker
 {
     protected $config;
+
+    protected $hasAttach = false;
 
     public function __construct(Config $config = null)
     {
@@ -60,10 +63,16 @@ class SyncInvoker
 
     public function attachServer(Server $server)
     {
-        $list = $this->__generateWorkerProcess();
-        /** @var AbstractUnixProcess $process */
-        foreach ($list as $process){
-            $server->addProcess($process->getProcess());
+        if(!$this->hasAttach){
+            $list = $this->__generateWorkerProcess();
+            /** @var AbstractUnixProcess $process */
+            foreach ($list as $process){
+                $server->addProcess($process->getProcess());
+            }
+            $this->hasAttach = true;
+        }else{
+            throw new Exception("can not attach server twice");
         }
+
     }
 }

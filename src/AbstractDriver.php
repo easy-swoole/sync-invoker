@@ -18,7 +18,7 @@ abstract class AbstractDriver
         $ref = new \ReflectionClass(static::class);
         $public = $ref->getMethods(\ReflectionMethod::IS_PUBLIC);
         foreach ($public as $item) {
-            array_push($list, $item->getName());
+            $list[] = $item->getName();
         }
         $this->allowMethods = array_diff($list,
             [
@@ -82,17 +82,5 @@ abstract class AbstractDriver
     protected function onException(\Throwable $throwable)
     {
         throw $throwable;
-    }
-
-    public function callback(?callable $callback)
-    {
-        if(is_callable($callback)){
-            $ret = call_user_func($callback,$this);
-            if($ret !== null && $this->response === null){
-                $this->response = $ret;
-            }
-        }else{
-            throw new Exception('callback method require a callable callback');
-        }
     }
 }
