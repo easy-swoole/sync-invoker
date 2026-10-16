@@ -38,6 +38,8 @@ composer require easyswoole/sync-invoker
 
 use EasySwoole\SyncInvoker\AbstractDriver;
 use EasySwoole\SyncInvoker\Config;
+use EasySwoole\SyncInvoker\Exception\ExceptionStatus;
+use EasySwoole\SyncInvoker\Exception\InvokeException;
 use EasySwoole\SyncInvoker\SyncInvoker;
 use EasySwoole\SyncInvoker\Worker;
 use Swoole\Http\Request;
@@ -71,6 +73,9 @@ final class Driver extends AbstractDriver
     {
         $this->response([
             'success' => false,
+            'status' => $throwable instanceof InvokeException
+                ? $throwable->getStatus()->value
+                : ExceptionStatus::UNKNOWN->value,
             'error' => $throwable->getMessage(),
         ]);
     }
@@ -125,8 +130,9 @@ public function invoke(float $timeout = 15.0): Client
 - 所有 worker 都忙且等待超过 timeout 时，调用返回 `null`。
 - Socket 连接、发送或接收失败时，调用也可能返回 `null`。
 
-超时后 `Invoker` 抛出 `RuntimeException('func timeout')`。该异常会先进入 Driver 的
-`onException()`；是否继续抛出由 Driver 的异常处理实现决定。
+超时后 `Invoker` 抛出 `RuntimeException('func timeout')`，随后被转换为
+`EasySwoole\SyncInvoker\Exception\InvokeException` 并进入 Driver 的 `onException()`；是否继续抛出
+由 Driver 的异常处理实现决定。
 
 ## 异常处理
 
@@ -134,12 +140,13 @@ public function invoke(float $timeout = 15.0): Client
 传播到 worker 进程边界，应在 Driver 中覆盖此方法，并且不要再次抛出：
 
 ```php
+use EasySwoole\SyncInvoker\Exception\ExceptionStatus;
+use EasySwoole\SyncInvoker\Exception\InvokeException;
+
 protected function onException(\Throwable $throwable): void
 {
-    if(
-        $throwable instanceof \RuntimeException
-        && $throwable->getMessage() === 'func timeout'
-    ){
+    if($throwable instanceof InvokeException
+        && $throwable->getStatus() === ExceptionStatus::TIMEOUT){
         $this->response([
             'success' => false,
             'error' => 'timeout',
@@ -153,6 +160,23 @@ protected function onException(\Throwable $throwable): void
     ]);
 }
 ```
+
+`ExceptionStatus::CALLBACK` 表示 Driver 回调方法抛出的异常，
+`ExceptionStatus::TIMEOUT` 表示任务执行超时，`ExceptionStatus::UNKNOWN` 表示库自身的
+配置或生命周期异常。原始异常保存在 `$throwable->getPrevious()` 中。
+
+`InvokeException` 沿用父类的标准异常构造函数，不通过构造参数绑定状态。状态可以按需
+读写：
+
+```php
+$exception = new InvokeException('custom error');
+$exception->setStatus(ExceptionStatus::CALLBACK);
+$status = $exception->getStatus();
+```
+
+如果 Driver 主动抛出已经设置状态的 `InvokeException`，框架会保留该异常及其状态，
+不会再次包装。原有 `EasySwoole\SyncInvoker\Exception\Exception` 不携带调用状态，继续
+用于配置和生命周期异常。
 
 `onException()` 自身也不应抛出新的异常，否则异常会继续传播到自定义进程入口。
 
