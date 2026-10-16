@@ -26,12 +26,22 @@ class SyncInvoker
         $this->config = $config;
         $this->workerTable = new Table(256);
         $this->workerTable->column('isAvailable', Table::TYPE_INT, 1);
+        $this->workerTable->column('pId', Table::TYPE_INT, 8);
         $this->workerTable->create();
     }
 
     public function getConfig(): Config
     {
         return $this->config;
+    }
+
+    public function workerInfo(): array
+    {
+        $workerInfo = [];
+        foreach($this->workerTable as $item){
+            $workerInfo[] = $item;
+        }
+        return $workerInfo;
     }
 
     public function __generateWorkerProcess(): array

@@ -25,7 +25,13 @@ class Worker extends AbstractUnixProcess
         if(is_callable($config->getOnWorkerStart())){
             call_user_func($config->getOnWorkerStart(),$this);
         }
-        $this->releaseWorker();
+        $this->workerTable->set(
+            (string) $this->workerIndex,
+            [
+                'isAvailable' => 1,
+                'pId' => (int) ($this->getPid() ?? getmypid())
+            ]
+        );
         parent::run($arg);
     }
 

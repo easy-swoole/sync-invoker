@@ -17,7 +17,8 @@
 
 1. `SyncInvoker` 创建多个自定义进程，每个进程监听独立的 Unix Socket。
 2. 每个进程串行执行一个同步阻塞任务。
-3. 共享 `Swoole\Table` 使用 `isAvailable` 标记当前可用的 worker。
+3. 共享 `Swoole\Table` 使用 `isAvailable` 标记当前可用的 worker，并通过 `pId` 保存
+   worker 进程 ID。
 4. 客户端调用方法时，从空闲 worker 中随机选择并原子抢占一个 worker。
 5. 命令、参数和 timeout 序列化后通过 Unix Socket 发送给 worker。
 6. worker 使用 `EasySwoole\Component\Invoker` 执行方法，并将 timeout 从秒转换为微秒。
@@ -236,6 +237,24 @@ $config->setOnWorkerStart(static function (Worker $worker): void {
 
 `onWorkerStart` 在同步 worker 进程内执行，适合创建只能在当前进程使用的数据库或第三方
 客户端连接。不要在父进程创建连接后再依赖 fork 复制到 worker。
+
+## Worker 信息
+
+`workerInfo()` 返回共享表中已经启动的 worker 进程信息：
+
+```php
+$workers = $invoker->workerInfo();
+
+// 示例：
+// [
+//     ['isAvailable' => 1, 'pId' => 12345],
+//     ['isAvailable' => 0, 'pId' => 12346],
+// ]
+```
+
+`isAvailable` 为 `1` 表示空闲，为 `0` 表示正在执行任务；`pId` 是对应同步 worker 的
+进程 ID。返回值是普通列表，不使用 worker 编号作为索引。尚未启动的 worker 不会出现
+在数组中。
 
 ## 测试
 
