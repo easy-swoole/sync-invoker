@@ -6,29 +6,21 @@ namespace EasySwoole\SyncInvoker;
 
 class Command
 {
-    protected $action;
-    protected $arg = [];
+    protected ?string $action = null;
+    protected array $arg = [];
+    protected float $timeout = 15.0;
 
-    /**
-     * @return mixed
-     */
-    public function getAction()
+    public function getAction(): ?string
     {
         return $this->action;
     }
 
-    /**
-     * @param mixed $action
-     */
-    public function setAction($action): void
+    public function setAction(string $action): void
     {
         $this->action = $action;
     }
 
-    /**
-     * @return mixed
-     */
-    public function getArg()
+    public function getArg(): array
     {
         return $this->arg;
     }
@@ -39,5 +31,15 @@ class Command
     public function setArg(array $arg): void
     {
         $this->arg = $arg;
+    }
+
+    public function getTimeout(): float
+    {
+        return $this->timeout;
+    }
+
+    public function setTimeout(float $timeout): void
+    {
+        $this->timeout = $timeout;
     }
 }

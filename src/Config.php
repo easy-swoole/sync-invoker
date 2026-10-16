@@ -8,76 +8,54 @@ use EasySwoole\Spl\SplBean;
 
 class Config extends SplBean
 {
-    protected $serverName = 'EasySwoole';
-    protected $workerNum = 3;
-    protected $tempDir;
-    /** @var AbstractDriver */
-    protected $driver;
-    protected $maxPackageSize = 1024*1024*2;
-    protected $timeout = 3.0;
+    protected string $serverName = 'EasySwoole';
+    protected int $workerNum = 3;
+    protected string $tempDir;
+    protected AbstractDriver $driver;
+    protected int $maxPackageSize = 1024*1024*2;
+    protected float $timeout = 15.0;
     /** @var callable|null */
-    protected $onWorkerStart;
-    protected $asyncAccept = true;
-    /**
-     * @return int
-     */
+    protected mixed $onWorkerStart = null;
+    // Invoker uses the process-wide SIGALRM timer. Requests in one worker must
+    // therefore be handled serially so their timers cannot overwrite each other.
+    protected bool $asyncAccept = false;
+
     public function getWorkerNum(): int
     {
         return $this->workerNum;
     }
 
-    /**
-     * @param int $workerNum
-     */
     public function setWorkerNum(int $workerNum): void
     {
         $this->workerNum = $workerNum;
     }
 
-    /**
-     * @return mixed
-     */
-    public function getTempDir()
+    public function getTempDir(): string
     {
         return $this->tempDir;
     }
 
-    /**
-     * @param mixed $tempDir
-     */
-    public function setTempDir($tempDir): void
+    public function setTempDir(string $tempDir): void
     {
         $this->tempDir = $tempDir;
     }
 
-    /**
-     * @return AbstractDriver
-     */
     public function getDriver(): AbstractDriver
     {
         return $this->driver;
     }
 
-    /**
-     * @param AbstractDriver $driver
-     */
     public function setDriver(AbstractDriver $driver): void
     {
         $this->driver = $driver;
     }
 
-    /**
-     * @return float|int
-     */
-    public function getMaxPackageSize()
+    public function getMaxPackageSize(): int
     {
         return $this->maxPackageSize;
     }
 
-    /**
-     * @param float|int $maxPackageSize
-     */
-    public function setMaxPackageSize($maxPackageSize): void
+    public function setMaxPackageSize(int $maxPackageSize): void
     {
         $this->maxPackageSize = $maxPackageSize;
     }

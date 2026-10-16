@@ -7,11 +7,12 @@ use EasySwoole\SyncInvoker\Exception\Exception;
 
 abstract class AbstractDriver
 {
-    private $allowMethods = [];
-    private $request;
-    private $response;
+    /** @var list<string> */
+    private array $allowMethods = [];
+    private ?Command $request = null;
+    private mixed $response = null;
 
-    function __construct()
+    public function __construct()
     {
         //支持在子类控制器中以private，protected来修饰某个方法不可见
         $list = [];
@@ -32,7 +33,7 @@ abstract class AbstractDriver
         );
     }
 
-    function __hook(Command $command)
+    public function __hook(Command $command): mixed
     {
         $this->request = $command;
         try {
@@ -54,32 +55,32 @@ abstract class AbstractDriver
     }
 
 
-    protected function onRequest(Command $command):bool
+    protected function onRequest(Command $command): bool
     {
         return true;
     }
 
-    protected function afterRequest()
+    protected function afterRequest(): void
     {
 
     }
 
-    protected function getRequest():Command
+    protected function getRequest(): Command
     {
         return $this->request;
     }
 
-    function response($response): void
+    public function response(mixed $response): void
     {
         $this->response = $response;
     }
 
-    protected function actionNotFound()
+    protected function actionNotFound(): void
     {
         throw new Exception("action {$this->getRequest()->getAction()} not exit");
     }
 
-    protected function onException(\Throwable $throwable)
+    protected function onException(\Throwable $throwable): void
     {
         throw $throwable;
     }

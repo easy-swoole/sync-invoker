@@ -8,27 +8,33 @@ use EasySwoole\Component\Process\Socket\AbstractUnixProcess;
 use EasySwoole\Component\Process\Socket\UnixProcessConfig;
 use EasySwoole\SyncInvoker\Exception\Exception;
 use Swoole\Server;
+use Swoole\Table;
 
 class SyncInvoker
 {
-    protected $config;
+    protected Config $config;
 
-    protected $hasAttach = false;
+    protected bool $hasAttach = false;
 
-    public function __construct(Config $config = null)
+    protected Table $workerTable;
+
+    public function __construct(?Config $config = null)
     {
         if($config == null){
             $config = new Config();
         }
         $this->config = $config;
+        $this->workerTable = new Table(256);
+        $this->workerTable->column('isAvailable', Table::TYPE_INT, 1);
+        $this->workerTable->create();
     }
 
-    function getConfig():Config
+    public function getConfig(): Config
     {
         return $this->config;
     }
 
-    public function __generateWorkerProcess():array
+    public function __generateWorkerProcess(): array
     {
         $ret = [];
         for ($i = 0;$i < $this->config->getWorkerNum();$i++){
@@ -39,6 +45,7 @@ class SyncInvoker
             $config->setAsyncCallback($this->config->isAsyncAccept());
             $config->setArg([
                 'workerIndex'=>$i,
+                'workerTable'=>$this->workerTable,
                 'config'=>$this->config
             ]);
             $ret[] = new Worker($config);
@@ -46,22 +53,32 @@ class SyncInvoker
         return $ret;
     }
 
-    function invoke(float $timeout = null)
+    public function invoke(float $timeout = 15.0): Client
     {
-        if($timeout === null){
-            $timeout = $this->config->getTimeout();
+        if($timeout <= 0){
+            throw new \InvalidArgumentException('timeout must be greater than 0');
         }
-        mt_srand();
-        $id = mt_rand(0,$this->config->getWorkerNum() -1);
-        return new Client($this->getSocket($id),$this->getConfig()->getMaxPackageSize(),$timeout);
+        if(!$this->hasAttach){
+            throw new Exception('SyncInvoker must be attached to server before invoke');
+        }
+        $sockets = [];
+        for($i = 0; $i < $this->config->getWorkerNum(); $i++){
+            $sockets[$i] = $this->getSocket($i);
+        }
+        return new Client(
+            $sockets,
+            $this->workerTable,
+            $this->getConfig()->getMaxPackageSize(),
+            $timeout
+        );
     }
 
-    private function getSocket(int $index)
+    private function getSocket(int $index): string
     {
         return "{$this->config->getTempDir()}/SyncInvoker.Worker.{$index}.sock";
     }
 
-    public function attachServer(Server $server)
+    public function attachServer(Server $server): void
     {
         if(!$this->hasAttach){
             $list = $this->__generateWorkerProcess();
@@ -75,4 +92,5 @@ class SyncInvoker
         }
 
     }
+
 }
