@@ -4,7 +4,6 @@
 namespace EasySwoole\SyncInvoker;
 
 
-use EasySwoole\Component\Invoker;
 use EasySwoole\Component\Process\Socket\AbstractUnixProcess;
 use Swoole\Coroutine\Socket;
 use Swoole\Table;
@@ -50,13 +49,7 @@ class Worker extends AbstractUnixProcess
                 $reply = null;
                 if($command instanceof Command){
                     $driver = $config->getDriver();
-                    $timeout = $command->getTimeout();
-                    $reply = Invoker::exec(
-                        static function () use ($driver, $command): mixed {
-                            return $driver->__hook($command);
-                        },
-                        max(1, (int) round($timeout * 1000000))
-                    );
+                    $reply = $driver->__hook($command);
                 }
                 $socket->sendAll(Protocol::pack(serialize($reply)));
             }

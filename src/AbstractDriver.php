@@ -4,8 +4,6 @@
 namespace EasySwoole\SyncInvoker;
 
 use EasySwoole\SyncInvoker\Exception\Exception;
-use EasySwoole\SyncInvoker\Exception\ExceptionStatus;
-use EasySwoole\SyncInvoker\Exception\InvokeException;
 
 abstract class AbstractDriver
 {
@@ -51,24 +49,7 @@ abstract class AbstractDriver
             $this->afterRequest();
             return $this->response;
         } catch (\Throwable $throwable) {
-            if($throwable instanceof InvokeException){
-                $exception = $throwable;
-            }else{
-                $exception = new InvokeException(
-                    $throwable->getMessage(),
-                    (int) $throwable->getCode(),
-                    $throwable
-                );
-            }
-            if(!($throwable instanceof InvokeException) &&
-                $throwable instanceof \RuntimeException
-                && $throwable->getMessage() === 'func timeout'
-            ){
-                $exception->setStatus(ExceptionStatus::TIMEOUT);
-            }elseif(!($throwable instanceof InvokeException)){
-                $exception->setStatus(ExceptionStatus::CALLBACK);
-            }
-            $this->onException($exception);
+            $this->onException($throwable);
             return $this->response;
         }
     }

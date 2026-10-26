@@ -17,7 +17,6 @@ final class SyncInvokerTest extends TestCase
 
         self::assertFalse($parameter->allowsNull());
         self::assertSame(15.0, $parameter->getDefaultValue());
-        self::assertSame(15.0, (new Config())->getTimeout());
     }
 
     public function testWorkerTableIsCreatedDuringConstruction(): void
@@ -46,5 +45,14 @@ final class SyncInvokerTest extends TestCase
             0 => ['isAvailable' => 1, 'pId' => 12345],
             1 => ['isAvailable' => 0, 'pId' => 12346],
         ], $invoker->workerInfo());
+    }
+
+    public function testGeneratedWorkersDisableAsyncAccept(): void
+    {
+        $invoker = new SyncInvoker();
+
+        foreach($invoker->__generateWorkerProcess() as $worker){
+            self::assertFalse($worker->getConfig()->isAsyncCallback());
+        }
     }
 }

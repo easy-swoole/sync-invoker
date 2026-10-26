@@ -7,11 +7,7 @@
 
 - PHP 8.1 或更高版本
 - Swoole 5.1 或更高版本
-- `pcntl` 扩展和 Unix 信号支持
-- Linux、macOS 等支持 `SIGALRM` 的系统
-
-`EasySwoole\Component\Invoker` 使用 `SIGALRM` 中断超时任务，因此不支持 Windows，
-也不能与进程内其他 `SIGALRM` 用法混用。
+- 支持 Unix Socket 和进程信号的操作系统
 
 ## 工作原理
 
@@ -20,9 +16,9 @@
 3. 共享 `Swoole\Table` 使用 `isAvailable` 标记当前可用的 worker，并通过 `pId` 保存
    worker 进程 ID。
 4. 客户端调用方法时，从空闲 worker 中随机选择并原子抢占一个 worker。
-5. 命令、参数和 timeout 序列化后通过 Unix Socket 发送给 worker。
-6. worker 使用 `EasySwoole\Component\Invoker` 执行方法，并将 timeout 从秒转换为微秒。
-7. 方法完成、抛出异常或超时后，worker 关闭当前连接并恢复为可用状态。
+5. 命令和参数序列化后通过 Unix Socket 发送给 worker。
+6. 客户端在 timeout 内等待返回；超时后立即向本次调用记录的 worker PID 发送 `SIGKILL`。
+7. Swoole Server 自动拉起新的 worker，新进程重新登记 PID 并恢复可用状态。
 
 共享表固定创建 256 行容量。实际同步进程数量由 `workerNum` 决定，不应超过 256。
 
@@ -39,8 +35,6 @@ composer require easyswoole/sync-invoker
 
 use EasySwoole\SyncInvoker\AbstractDriver;
 use EasySwoole\SyncInvoker\Config;
-use EasySwoole\SyncInvoker\Exception\ExceptionStatus;
-use EasySwoole\SyncInvoker\Exception\InvokeException;
 use EasySwoole\SyncInvoker\SyncInvoker;
 use EasySwoole\SyncInvoker\Worker;
 use Swoole\Http\Request;
@@ -74,9 +68,6 @@ final class Driver extends AbstractDriver
     {
         $this->response([
             'success' => false,
-            'status' => $throwable instanceof InvokeException
-                ? $throwable->getStatus()->value
-                : ExceptionStatus::UNKNOWN->value,
             'error' => $throwable->getMessage(),
         ]);
     }
@@ -102,7 +93,7 @@ $server->on('request', static function (
     // 默认 timeout 为 15 秒。
     $sum = $invoker->invoke()->plus(1, 2);
 
-    // timeout 单位为秒；该调用将在约 500ms 后被 SIGALRM 中断。
+    // timeout 单位为秒；超时后执行该任务的 worker 进程会被强制终止。
     $timeoutResult = $invoker->invoke(0.5)->blockingTask();
 
     $response->end(json_encode([
@@ -127,34 +118,49 @@ public function invoke(float $timeout = 15.0): Client
 - 不接受 `null`。
 - 必须大于 `0`，否则抛出 `InvalidArgumentException`。
 - timeout 是一次调用的总时间预算，包括等待空闲 worker、Unix Socket 通讯和方法执行。
-- worker 收到的执行 timeout 是扣除等待 worker 所消耗时间后的剩余值。
 - 所有 worker 都忙且等待超过 timeout 时，调用返回 `null`。
 - Socket 连接、发送或接收失败时，调用也可能返回 `null`。
+- Socket 收包明确超时时，客户端立即 `SIGKILL` 本次调用开始时记录的 worker PID，
+  返回 `null`，并等待 Swoole Server 自动拉起替代进程。
+- 超时路径不会把旧 worker 恢复为可用；只有新 worker 启动后才会写入新 PID 和可用状态。
 
-超时后 `Invoker` 抛出 `RuntimeException('func timeout')`，随后被转换为
-`EasySwoole\SyncInvoker\Exception\InvokeException` 并进入 Driver 的 `onException()`；是否继续抛出
-由 Driver 的异常处理实现决定。
+### `signal=9` 属于预期日志
+
+`SIGKILL` 无法被 worker 捕获、忽略或执行清理，因此 Swoole 会把旧 worker 记录为
+`signal=9` 异常退出，例如：
+
+```text
+worker(pid=12345, id=2) abnormal exit, status=0, signal=9
+```
+
+当该日志与一次 Sync Invoker timeout 对应时，属于预期行为，不表示 Swoole 无法恢复；
+Swoole Server 会自动拉起替代 worker。不要无条件忽略所有 `signal=9`，因为手工
+`kill -9`、OOM 或其他故障也可能产生相同信号，监控系统应结合 timeout 记录、PID 和
+发生时间判断。
+
+### Callback、事务与幂等性
+
+超时强杀不会执行 Driver 的 `onException()`、`finally`、析构函数或 shutdown callback。
+因此 callback 包含数据库事务或外部副作用时必须特别注意：
+
+- 未提交事务通常会在数据库连接断开后回滚，但最终行为取决于数据库和驱动，不能依赖
+  PHP 清理代码执行回滚。
+- 事务可能已经成功提交，但结果尚未来得及通过 Unix Socket 返回；此时调用方得到
+  `null`，不能据此判断业务操作一定失败。
+- HTTP API、消息发送、文件写入等操作也可能已经产生副作用，只是返回阶段发生超时。
+- 调用方重试可能造成重复写入、重复扣款或重复发送，callback 应使用业务唯一键、
+  幂等 token、唯一索引或去重记录保证幂等。
+- 尽量缩短事务范围，不要在数据库事务中执行耗时的外部网络调用。
+- 数据库连接及其他进程内资源必须在 `onWorkerStart` 中创建，以便 worker 被拉起后重建。
 
 ## 异常处理
 
-`AbstractDriver::onException()` 默认会重新抛出异常。如果希望业务异常和 timeout 不再
+`AbstractDriver::onException()` 默认会重新抛出异常。如果希望业务异常不再
 传播到 worker 进程边界，应在 Driver 中覆盖此方法，并且不要再次抛出：
 
 ```php
-use EasySwoole\SyncInvoker\Exception\ExceptionStatus;
-use EasySwoole\SyncInvoker\Exception\InvokeException;
-
 protected function onException(\Throwable $throwable): void
 {
-    if($throwable instanceof InvokeException
-        && $throwable->getStatus() === ExceptionStatus::TIMEOUT){
-        $this->response([
-            'success' => false,
-            'error' => 'timeout',
-        ]);
-        return;
-    }
-
     $this->response([
         'success' => false,
         'error' => $throwable->getMessage(),
@@ -162,22 +168,8 @@ protected function onException(\Throwable $throwable): void
 }
 ```
 
-`ExceptionStatus::CALLBACK` 表示 Driver 回调方法抛出的异常，
-`ExceptionStatus::TIMEOUT` 表示任务执行超时，`ExceptionStatus::UNKNOWN` 表示库自身的
-配置或生命周期异常。原始异常保存在 `$throwable->getPrevious()` 中。
-
-`InvokeException` 沿用父类的标准异常构造函数，不通过构造参数绑定状态。状态可以按需
-读写：
-
-```php
-$exception = new InvokeException('custom error');
-$exception->setStatus(ExceptionStatus::CALLBACK);
-$status = $exception->getStatus();
-```
-
-如果 Driver 主动抛出已经设置状态的 `InvokeException`，框架会保留该异常及其状态，
-不会再次包装。原有 `EasySwoole\SyncInvoker\Exception\Exception` 不携带调用状态，继续
-用于配置和生命周期异常。
+Driver callback 抛出的原始异常会直接传给 `onException()`。客户端 timeout 采用进程
+强杀，不会进入 Driver 的 `onException()`。
 
 `onException()` 自身也不应抛出新的异常，否则异常会继续传播到自定义进程入口。
 
@@ -206,20 +198,17 @@ public function findUser(int $id): void
 只有 public 方法能够被客户端调用。private、protected 方法以及 Driver 内部生命周期
 方法不会作为远程调用入口。
 
-## Worker 并发模型
+## Worker 并发和超时模型
 
-`Invoker` 使用的 alarm 和 `SIGALRM` 都是进程级资源，同一个 worker 不能并发执行多个
-带超时的任务。因此：
+同一个 worker 只允许串行执行一个同步任务：
 
-- `asyncAccept` 默认必须保持为 `false`。
+- async accept 固定关闭，不提供配置开关。
 - 每个 worker 同一时间只执行一个同步任务。
 - 需要提高并行度时，应增加 `workerNum`，而不是开启 worker 内协程并发。
-- 不要在 Driver、`onWorkerStart` 或同一 worker 的其他代码中注册 `SIGALRM`。
-- 不要嵌套调用 `Invoker::exec()`。
-
-这里的 timeout 是信号触发的软中断。普通 PHP 代码和可被信号中断的系统调用能够及时
-结束；如果第三方扩展长期停留在不可中断的底层 C 调用中，信号可能需要等控制权返回
-PHP 后才能生效。
+- 客户端抢占 worker 时同时记录 PID，避免误杀重启后的新进程。
+- 只有 Unix Socket 收包错误明确为 `SOCKET_ETIMEDOUT` 时才会强杀。
+- `SIGKILL` 是进程级强杀，即使任务卡在不可中断的 PHP 扩展调用中也能终止整个 worker。
+- worker 内的数据库连接等进程资源会随进程销毁，并在新 worker 的 `onWorkerStart` 中重建。
 
 ## 主要配置
 

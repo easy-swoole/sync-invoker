@@ -8,7 +8,6 @@ class Command
 {
     protected ?string $action = null;
     protected array $arg = [];
-    protected float $timeout = 15.0;
 
     public function getAction(): ?string
     {
@@ -33,13 +32,4 @@ class Command
         $this->arg = $arg;
     }
 
-    public function getTimeout(): float
-    {
-        return $this->timeout;
-    }
-
-    public function setTimeout(float $timeout): void
-    {
-        $this->timeout = $timeout;
-    }
 }

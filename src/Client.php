@@ -4,6 +4,7 @@
 namespace EasySwoole\SyncInvoker;
 
 use Swoole\Coroutine;
+use Swoole\Process;
 use Swoole\Table;
 
 
@@ -27,10 +28,12 @@ class Client
     public function __call(string $name, array $arguments): mixed
     {
         $deadline = microtime(true) + $this->timeout;
-        $workerId = $this->acquireWorker($deadline);
-        if($workerId === null){
+        $worker = $this->acquireWorker($deadline);
+        if($worker === null){
             return null;
         }
+        $workerId = $worker['workerId'];
+        $workerPid = $worker['pId'];
 
         $remainingTimeout = $deadline - microtime(true);
         if($remainingTimeout <= 0){
@@ -41,7 +44,6 @@ class Client
         $command = new Command();
         $command->setArg($arguments);
         $command->setAction($name);
-        $command->setTimeout($remainingTimeout);
         try{
             $client = new UnixClient($this->sockets[$workerId], $this->maxPackageSize, $remainingTimeout);
             $sent = $client->send(Protocol::pack(serialize($command)));
@@ -53,28 +55,39 @@ class Client
             $this->releaseWorker($workerId);
             return null;
         }
-        // Leave a small window for the worker to serialize and send the result
-        // after its execution timer fires.
-        $data = $client->recv($remainingTimeout + 0.1);
-        if($data){
+        $data = $client->recv($remainingTimeout);
+        if(is_string($data) && $data !== ''){
             $data = Protocol::unpack($data);
             return unserialize($data);
+        }
+        if($data === false && $client->getErrorCode() === SOCKET_ETIMEDOUT){
+            $this->killWorker($workerId, $workerPid);
         }
         return null;
     }
 
-    private function acquireWorker(float $deadline): ?int
+    /** @return array{workerId: int, pId: int}|null */
+    private function acquireWorker(float $deadline): ?array
     {
         $workerIds = array_keys($this->sockets);
         while(microtime(true) < $deadline){
             shuffle($workerIds);
             foreach($workerIds as $workerId){
+                $worker = $this->workerTable->get((string) $workerId);
+                if($worker === false || (int) $worker['pId'] <= 0){
+                    continue;
+                }
                 $available = $this->workerTable->decr(
                     (string) $workerId,
                     'isAvailable'
                 );
                 if($available === 0){
-                    return $workerId;
+                    $pid = (int) $this->workerTable->get((string) $workerId, 'pId');
+                    if($pid > 0){
+                        return ['workerId' => $workerId, 'pId' => $pid];
+                    }
+                    $this->releaseWorker($workerId);
+                    continue;
                 }
                 $this->workerTable->incr(
                     (string) $workerId,
@@ -96,5 +109,18 @@ class Client
             (string) $workerId,
             ['isAvailable' => 1]
         );
+    }
+
+    private function killWorker(int $workerId, int $workerPid): void
+    {
+        $currentPid = (int) $this->workerTable->get((string) $workerId, 'pId');
+        if($currentPid !== $workerPid){
+            return;
+        }
+        $this->workerTable->set(
+            (string) $workerId,
+            ['isAvailable' => -1]
+        );
+        Process::kill($workerPid, SIGKILL);
     }
 }

@@ -13,12 +13,8 @@ class Config extends SplBean
     protected string $tempDir;
     protected AbstractDriver $driver;
     protected int $maxPackageSize = 1024*1024*2;
-    protected float $timeout = 15.0;
     /** @var callable|null */
     protected mixed $onWorkerStart = null;
-    // Invoker uses the process-wide SIGALRM timer. Requests in one worker must
-    // therefore be handled serially so their timers cannot overwrite each other.
-    protected bool $asyncAccept = false;
 
     public function getWorkerNum(): int
     {
@@ -77,22 +73,6 @@ class Config extends SplBean
     }
 
     /**
-     * @return float
-     */
-    public function getTimeout(): float
-    {
-        return $this->timeout;
-    }
-
-    /**
-     * @param float $timeout
-     */
-    public function setTimeout(float $timeout): void
-    {
-        $this->timeout = $timeout;
-    }
-
-    /**
      * @return callable|null
      */
     public function getOnWorkerStart(): ?callable
@@ -106,22 +86,6 @@ class Config extends SplBean
     public function setOnWorkerStart(?callable $onWorkerStart): void
     {
         $this->onWorkerStart = $onWorkerStart;
-    }
-
-    /**
-     * @return bool
-     */
-    public function isAsyncAccept(): bool
-    {
-        return $this->asyncAccept;
-    }
-
-    /**
-     * @param bool $asyncAccept
-     */
-    public function setAsyncAccept(bool $asyncAccept): void
-    {
-        $this->asyncAccept = $asyncAccept;
     }
 
     protected function initialize(): void

@@ -8,7 +8,7 @@ use Swoole\Coroutine\Client;
 
 class UnixClient
 {
-    private ?Client $client = null;
+    private Client $client;
 
     public function __construct(string $unixSock, int $maxPackageSize, float $timeout)
     {
@@ -42,17 +42,17 @@ class UnixClient
         }
     }
 
-    public function recv(float $timeout = 0.1): ?string
+    public function recv(float $timeout = 0.1): string|false
     {
         if($this->client->isConnected()){
-            $ret = $this->client->recv($timeout);
-            if(!empty($ret)){
-                return $ret;
-            }else{
-                return null;
-            }
+            return $this->client->recv($timeout);
         }else{
-            return null;
+            return false;
         }
+    }
+
+    public function getErrorCode(): int
+    {
+        return $this->client->errCode;
     }
 }
