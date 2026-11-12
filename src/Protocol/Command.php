@@ -1,13 +1,15 @@
 <?php
 
 
-namespace EasySwoole\SyncInvoker;
+namespace EasySwoole\SyncInvoker\Protocol;
 
 
 class Command
 {
     protected ?string $action = null;
     protected array $arg = [];
+    // Absolute deadline in seconds on the local monotonic clock.
+    protected ?float $expireTime = null;
 
     public function getAction(): ?string
     {
@@ -24,12 +26,18 @@ class Command
         return $this->arg;
     }
 
-    /**
-     * @param mixed $arg
-     */
     public function setArg(array $arg): void
     {
         $this->arg = $arg;
     }
 
+    public function getExpireTime(): ?float
+    {
+        return $this->expireTime;
+    }
+
+    public function setExpireTime(float $expireTime): void
+    {
+        $this->expireTime = $expireTime;
+    }
 }

@@ -1,9 +1,10 @@
 <?php
 
 
-namespace EasySwoole\SyncInvoker;
+namespace EasySwoole\SyncInvoker\Transport;
 
 
+use EasySwoole\SyncInvoker\Protocol\Protocol;
 use Swoole\Coroutine\Client;
 
 class UnixClient
@@ -18,25 +19,35 @@ class UnixClient
                 'open_length_check' => true,
                 'package_length_type'   => 'N',
                 'package_length_offset' => 0,
-                'package_body_offset'   => 4,
+                'package_body_offset'   => Protocol::HEADER_SIZE,
                 'package_max_length'    => $maxPackageSize,
                 'timeout'=>$timeout
             ]
         );
-        $this->client->connect($unixSock,0,3);
+        $this->client->connect($unixSock, 0, $timeout);
     }
 
     public function __destruct()
+    {
+        $this->close();
+    }
+
+    public function isConnected(): bool
+    {
+        return $this->client->isConnected();
+    }
+
+    public function close(): void
     {
         if($this->client->isConnected()){
             $this->client->close();
         }
     }
 
-    public function send(string $rawData): int|false
+    public function send(string $rawData, float $timeout = 0): int|false
     {
         if($this->client->isConnected()){
-            return $this->client->send($rawData);
+            return $this->client->send($rawData, $timeout);
         }else{
             return false;
         }

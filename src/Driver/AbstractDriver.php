@@ -1,9 +1,10 @@
 <?php
 
 
-namespace EasySwoole\SyncInvoker;
+namespace EasySwoole\SyncInvoker\Driver;
 
 use EasySwoole\SyncInvoker\Exception\Exception;
+use EasySwoole\SyncInvoker\Protocol\Command;
 
 abstract class AbstractDriver
 {
@@ -36,6 +37,7 @@ abstract class AbstractDriver
     public function __hook(Command $command): mixed
     {
         $this->request = $command;
+        $this->response = null;
         try {
             if($this->onRequest($command) === false){
                 return $this->response;

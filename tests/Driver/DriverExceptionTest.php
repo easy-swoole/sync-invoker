@@ -1,9 +1,9 @@
 <?php
 
-namespace EasySwoole\SyncInvoker\Tests;
+namespace EasySwoole\SyncInvoker\Tests\Driver;
 
-use EasySwoole\SyncInvoker\AbstractDriver;
-use EasySwoole\SyncInvoker\Command;
+use EasySwoole\SyncInvoker\Driver\AbstractDriver;
+use EasySwoole\SyncInvoker\Protocol\Command;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 

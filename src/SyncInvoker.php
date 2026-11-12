@@ -6,7 +6,9 @@ namespace EasySwoole\SyncInvoker;
 
 use EasySwoole\Component\Process\Socket\AbstractUnixProcess;
 use EasySwoole\Component\Process\Socket\UnixProcessConfig;
+use EasySwoole\SyncInvoker\Client\Client;
 use EasySwoole\SyncInvoker\Exception\Exception;
+use EasySwoole\SyncInvoker\Process\Worker;
 use Swoole\Server;
 use Swoole\Table;
 
@@ -65,8 +67,8 @@ class SyncInvoker
 
     public function invoke(float $timeout = 15.0): Client
     {
-        if($timeout <= 0){
-            throw new \InvalidArgumentException('timeout must be greater than 0');
+        if(!is_finite($timeout) || $timeout <= 0){
+            throw new \InvalidArgumentException('timeout must be finite and greater than 0');
         }
         if(!$this->hasAttach){
             throw new Exception('SyncInvoker must be attached to server before invoke');
@@ -85,7 +87,7 @@ class SyncInvoker
 
     private function getSocket(int $index): string
     {
-        return "{$this->config->getTempDir()}/SyncInvoker.Worker.{$index}.sock";
+        return "{$this->config->getTempDir()}/SyncInvoker.{$this->config->getServerName()}.{$index}.sock";
     }
 
     public function attachServer(Server $server): void

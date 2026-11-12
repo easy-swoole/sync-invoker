@@ -13,14 +13,23 @@
 
 1. `SyncInvoker` 创建多个自定义进程，每个进程监听独立的 Unix Socket。
 2. 每个进程串行执行一个同步阻塞任务。
-3. 共享 `Swoole\Table` 使用 `isAvailable` 标记当前可用的 worker，并通过 `pId` 保存
-   worker 进程 ID。
-4. 客户端调用方法时，从空闲 worker 中随机选择并原子抢占一个 worker。
-5. 命令和参数序列化后通过 Unix Socket 发送给 worker。
-6. 客户端在 timeout 内等待返回；超时后立即向本次调用记录的 worker PID 发送 `SIGKILL`。
-7. Swoole Server 自动拉起新的 worker，新进程重新登记 PID 并恢复可用状态。
+3. 每个 worker 在共享 `Swoole\Table` 中登记 PID，并维护自己的 `isAvailable` 状态。
+4. 客户端优先随机选择一个空闲 worker。全部繁忙时，随机选择一个已启动的 worker 投递。
+5. 命令、参数和截止时间 `expireTime` 通过 Unix Socket 发送。等待中的连接由该 worker 的 Socket 队列承接。
+6. worker 串行处理连接，开始执行前跳过已经过期的请求。
+7. 客户端超时后关闭连接。已经开始的任务继续执行。
 
 共享表固定创建 256 行容量。实际同步进程数量由 `workerNum` 决定，不应超过 256。
+
+## 代码目录
+
+- `src/SyncInvoker.php` 和 `src/Config.php` 提供服务挂载和配置入口。
+- `src/Client/` 管理调用、超时和返回状态。
+- `src/Driver/` 提供业务方法分发和生命周期钩子。
+- `src/Process/` 管理 worker 的串行执行和进程回收。
+- `src/Protocol/` 定义命令和数据包格式。
+- `src/Transport/` 封装 Unix Socket 客户端。
+- `tests/Integration/` 覆盖跨模块的 Socket 调用流程。
 
 ## 安装
 
@@ -33,10 +42,11 @@ composer require easyswoole/sync-invoker
 ```php
 <?php
 
-use EasySwoole\SyncInvoker\AbstractDriver;
+use EasySwoole\SyncInvoker\Driver\AbstractDriver;
 use EasySwoole\SyncInvoker\Config;
+use EasySwoole\SyncInvoker\Client\ResponseStatus;
 use EasySwoole\SyncInvoker\SyncInvoker;
-use EasySwoole\SyncInvoker\Worker;
+use EasySwoole\SyncInvoker\Process\Worker;
 use Swoole\Http\Request;
 use Swoole\Http\Response;
 use Swoole\Http\Server;
@@ -93,17 +103,34 @@ $server->on('request', static function (
     // 默认 timeout 为 15 秒。
     $sum = $invoker->invoke()->plus(1, 2);
 
-    // timeout 单位为秒；超时后执行该任务的 worker 进程会被强制终止。
+    // timeout 单位为秒。客户端超时后关闭连接，已开始的任务继续执行。
     $timeoutResult = $invoker->invoke(0.5)->blockingTask();
 
     $response->end(json_encode([
-        'sum' => $sum,
+        'sum' => $sum->status === ResponseStatus::Ok ? $sum->result : null,
+        'sumStatus' => $sum->status->value,
         'blockingTask' => $timeoutResult,
     ], JSON_UNESCAPED_UNICODE));
 });
 
 $server->start();
 ```
+
+## 调用响应
+
+`$invoker->invoke()->plus(1, 2)` 返回 `EasySwoole\SyncInvoker\Client\Response`，包含三个只读字段。
+
+| 字段 | 含义 |
+| --- | --- |
+| `status` | `Ok`（`ok`）、`Timeout`（`timeout`）、`TransportError`（`transport_error`）或 `PackageTooLarge`（`package_too_large`），均为 `ResponseStatus` 枚举值。 |
+| `result` | `Ok` 时是 Driver 设置的业务结果，可以是 `null` 或 `false`。其他状态下为 `null`。 |
+| `msg` | 用于诊断的消息，成功时为空字符串。调用方根据 `status` 分支。 |
+
+Driver 继续用 `$this->response($value)` 设置业务结果。
+
+`maxPackageSize` 按字节限制请求和响应的完整数据包，包含 4 字节包头和序列化后的包体。等于上限可以通过。
+客户端在发送前检查请求，worker 在读取包体前再次检查。超大的请求会被拒绝，Driver 不会执行。
+超大的响应会改发 `PackageTooLarge`，此时 Driver 已经执行。
 
 ## Timeout 语义
 
@@ -116,42 +143,19 @@ public function invoke(float $timeout = 15.0): Client
 - 单位为秒，支持小数。
 - 默认值为 15 秒。
 - 不接受 `null`。
-- 必须大于 `0`，否则抛出 `InvalidArgumentException`。
-- timeout 是一次调用的总时间预算，包括等待空闲 worker、Unix Socket 通讯和方法执行。
-- 所有 worker 都忙且等待超过 timeout 时，调用返回 `null`。
-- Socket 连接、发送或接收失败时，调用也可能返回 `null`。
-- Socket 收包明确超时时，客户端立即 `SIGKILL` 本次调用开始时记录的 worker PID，
-  返回 `null`，并等待 Swoole Server 自动拉起替代进程。
-- 超时路径不会把旧 worker 恢复为可用；只有新 worker 启动后才会写入新 PID 和可用状态。
-
-### `signal=9` 属于预期日志
-
-`SIGKILL` 无法被 worker 捕获、忽略或执行清理，因此 Swoole 会把旧 worker 记录为
-`signal=9` 异常退出，例如：
-
-```text
-worker(pid=12345, id=2) abnormal exit, status=0, signal=9
-```
-
-当该日志与一次 Sync Invoker timeout 对应时，属于预期行为，不表示 Swoole 无法恢复；
-Swoole Server 会自动拉起替代 worker。不要无条件忽略所有 `signal=9`，因为手工
-`kill -9`、OOM 或其他故障也可能产生相同信号，监控系统应结合 timeout 记录、PID 和
-发生时间判断。
+- 必须是大于 `0` 的有限数值，否则抛出 `InvalidArgumentException`。
+- timeout 是单次调用的总预算。客户端从开始调用计算同一个 `expireTime`，连接、发送和接收都使用剩余时间。
+- `expireTime` 使用同一台主机上的单调时钟。任务排队期间耗尽预算时，worker 关闭连接并跳过 Driver 调用。
+- 客户端超时或 Socket 通信失败时关闭连接，分别返回 `Timeout` 或 `TransportError` 状态。
+- 任务一旦开始便继续执行。执行完已经过期，或发送响应时连接断开，worker 会丢弃响应并处理下一个连接。
+- 如果任务一直阻塞，所在 worker 会持续繁忙，排在它后面的任务要等它恢复后才能处理。
 
 ### Callback、事务与幂等性
 
-超时强杀不会执行 Driver 的 `onException()`、`finally`、析构函数或 shutdown callback。
-因此 callback 包含数据库事务或外部副作用时必须特别注意：
-
-- 未提交事务通常会在数据库连接断开后回滚，但最终行为取决于数据库和驱动，不能依赖
-  PHP 清理代码执行回滚。
-- 事务可能已经成功提交，但结果尚未来得及通过 Unix Socket 返回；此时调用方得到
-  `null`，不能据此判断业务操作一定失败。
-- HTTP API、消息发送、文件写入等操作也可能已经产生副作用，只是返回阶段发生超时。
-- 调用方重试可能造成重复写入、重复扣款或重复发送，callback 应使用业务唯一键、
-  幂等 token、唯一索引或去重记录保证幂等。
-- 尽量缩短事务范围，不要在数据库事务中执行耗时的外部网络调用。
-- 数据库连接及其他进程内资源必须在 `onWorkerStart` 中创建，以便 worker 被拉起后重建。
+**任务投递后，客户端收到 `Timeout`，不能据此判断任务是否执行。**
+在截止时间附近，worker 可能刚通过过期检查并开始执行，客户端随即超时断开。任务也可能已经执行完成，
+但响应没能在截止时间前送达。只有 worker 在开始执行前发现任务已过期时，才会跳过该任务。
+对于事务、HTTP 请求、消息发送和文件写入等有副作用的任务，调用方重试时应使用业务唯一键或幂等 token 去重。
 
 ## 异常处理
 
@@ -168,15 +172,14 @@ protected function onException(\Throwable $throwable): void
 }
 ```
 
-Driver callback 抛出的原始异常会直接传给 `onException()`。客户端 timeout 采用进程
-强杀，不会进入 Driver 的 `onException()`。
+Driver callback 抛出的原始异常会直接传给 `onException()`。客户端 timeout 只会关闭连接。
 
 `onException()` 自身也不应抛出新的异常，否则异常会继续传播到自定义进程入口。
 
 ## Driver 必须无状态
 
 Driver 实例不会为每次调用 clone。每个 worker 进程拥有自己独立的 Driver 实例，并且
-请求会分配到任意空闲 worker。因此不要在 Driver 属性中保存以下状态：
+请求可分配到任一已启动的 worker。因此不要在 Driver 属性中保存以下状态：
 
 - 当前请求的数据
 - 调用次数或任务进度
@@ -205,10 +208,23 @@ public function findUser(int $id): void
 - async accept 固定关闭，不提供配置开关。
 - 每个 worker 同一时间只执行一个同步任务。
 - 需要提高并行度时，应增加 `workerNum`，而不是开启 worker 内协程并发。
-- 客户端抢占 worker 时同时记录 PID，避免误杀重启后的新进程。
-- 只有 Unix Socket 收包错误明确为 `SOCKET_ETIMEDOUT` 时才会强杀。
-- `SIGKILL` 是进程级强杀，即使任务卡在不可中断的 PHP 扩展调用中也能终止整个 worker。
-- worker 内的数据库连接等进程资源会随进程销毁，并在新 worker 的 `onWorkerStart` 中重建。
+- 空闲标记由 worker 更新，客户端用它优先选择空闲进程。同一个 worker 可以收到多个客户端的投递。
+- Socket 队列按各 worker 独立维护。投递到繁忙 worker 的请求留在该 worker 的队列里。
+
+### Worker 异常退出
+
+例如，worker 正在执行任务 A，任务 B 已经连接并在该 worker 的 Unix Socket 监听队列中等待。
+如果 A 触发 `pcntl_alarm()` 导致 worker 退出，旧连接随之关闭，B 不会执行。
+B 的客户端在发送或等待响应时检测到连接失败，会收到 `ResponseStatus::TransportError`。
+如果客户端的调用预算先耗尽，则会收到 `ResponseStatus::Timeout`。
+
+Swoole 拉起的新 worker 只接收新建立的连接。旧 worker 队列里的请求不会转移，Sync Invoker 也不会自动重投。
+
+### Worker 定期回收
+
+`maxExecuteNum` 是单个 worker 进程执行的任务数上限，默认 `0` 表示不限。只有进入 Driver 的请求才计数，
+排队过期或包长超限而被拒绝的请求不计数。达到上限后，worker 会先完成当前任务并尝试发送响应，
+关闭连接后直接退出。Swoole 拉起的新 worker 从零开始计数。旧 Socket 上已排队的请求不会转移或自动重投。
 
 ## 主要配置
 
@@ -216,6 +232,7 @@ public function findUser(int $id): void
 $config = new Config();
 $config->setServerName('EasySwoole');
 $config->setWorkerNum(3);
+$config->setMaxExecuteNum(1000);
 $config->setTempDir(sys_get_temp_dir());
 $config->setMaxPackageSize(2 * 1024 * 1024);
 $config->setDriver(new Driver());
@@ -223,6 +240,10 @@ $config->setOnWorkerStart(static function (Worker $worker): void {
     // 初始化当前 worker 独享的同步客户端连接。
 });
 ```
+
+Socket 文件名为 `SyncInvoker.<serverName>.<workerIndex>.sock`。
+`serverName` 只接受非空的 ASCII 字母和数字。在同一个 `tempDir` 中运行多个 Invoker 时，
+请在挂载 Server 前为它们设置不同的名称。在不区分大小写的文件系统上，名称需要有大小写之外的区别。
 
 `onWorkerStart` 在同步 worker 进程内执行，适合创建只能在当前进程使用的数据库或第三方
 客户端连接。不要在父进程创建连接后再依赖 fork 复制到 worker。
@@ -241,7 +262,7 @@ $workers = $invoker->workerInfo();
 // ]
 ```
 
-`isAvailable` 为 `1` 表示空闲，为 `0` 表示正在执行任务；`pId` 是对应同步 worker 的
+`isAvailable` 为 `1` 表示可接收下一个连接，为 `0` 表示正在处理一个连接。`pId` 是对应同步 worker 的
 进程 ID。返回值是普通列表，不使用 worker 编号作为索引。尚未启动的 worker 不会出现
 在数组中。
 
