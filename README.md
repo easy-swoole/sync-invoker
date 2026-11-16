@@ -122,15 +122,13 @@ $server->start();
 
 | 字段 | 含义 |
 | --- | --- |
-| `status` | `Ok`（`ok`）、`Timeout`（`timeout`）、`TransportError`（`transport_error`）或 `PackageTooLarge`（`package_too_large`），均为 `ResponseStatus` 枚举值。 |
+| `status` | `Ok`（`ok`）、`Timeout`（`timeout`）或 `TransportError`（`transport_error`），均为 `ResponseStatus` 枚举值。 |
 | `result` | `Ok` 时是 Driver 设置的业务结果，可以是 `null` 或 `false`。其他状态下为 `null`。 |
 | `msg` | 用于诊断的消息，成功时为空字符串。调用方根据 `status` 分支。 |
 
 Driver 继续用 `$this->response($value)` 设置业务结果。
 
-`maxPackageSize` 按字节限制请求和响应的完整数据包，包含 4 字节包头和序列化后的包体。等于上限可以通过。
-客户端在发送前检查请求，worker 在读取包体前再次检查。超大的请求会被拒绝，Driver 不会执行。
-超大的响应会改发 `PackageTooLarge`，此时 Driver 已经执行。
+请求和响应沿用 4 字节无符号包体长度。单个包体最多可表示 4 GiB 减 1 字节，实际可传大小受 PHP 可用内存和超时预算影响。
 
 ## Timeout 语义
 
@@ -223,7 +221,7 @@ Swoole 拉起的新 worker 只接收新建立的连接。旧 worker 队列里的
 ### Worker 定期回收
 
 `maxExecuteNum` 是单个 worker 进程执行的任务数上限，默认 `0` 表示不限。只有进入 Driver 的请求才计数，
-排队过期或包长超限而被拒绝的请求不计数。达到上限后，worker 会先完成当前任务并尝试发送响应，
+排队过期的请求不计数。达到上限后，worker 会先完成当前任务并尝试发送响应，
 关闭连接后直接退出。Swoole 拉起的新 worker 从零开始计数。旧 Socket 上已排队的请求不会转移或自动重投。
 
 ## 主要配置
@@ -234,7 +232,6 @@ $config->setServerName('EasySwoole');
 $config->setWorkerNum(3);
 $config->setMaxExecuteNum(1000);
 $config->setTempDir(sys_get_temp_dir());
-$config->setMaxPackageSize(2 * 1024 * 1024);
 $config->setDriver(new Driver());
 $config->setOnWorkerStart(static function (Worker $worker): void {
     // 初始化当前 worker 独享的同步客户端连接。

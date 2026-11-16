@@ -8,6 +8,7 @@ use EasySwoole\Component\Process\Socket\AbstractUnixProcess;
 use EasySwoole\SyncInvoker\Config;
 use EasySwoole\SyncInvoker\Protocol\Command;
 use EasySwoole\SyncInvoker\Protocol\Protocol;
+use EasySwoole\SyncInvoker\Transport\PacketReader;
 use Swoole\Coroutine\Socket;
 use Swoole\Process;
 use Swoole\Table;
@@ -49,16 +50,11 @@ class Worker extends AbstractUnixProcess
                 return;
             }
             $length = Protocol::packDataLength($header);
-            $maxPackageSize = $this->config->getMaxPackageSize();
-            if (Protocol::exceedsPackageSize($length, $maxPackageSize)) {
-                $socket->sendAll(Protocol::pack(Protocol::REQUEST_TOO_LARGE), 1);
-                return;
-            }
             if ($length === 0) {
                 return;
             }
-            $data = $socket->recvAll($length, 1);
-            if (!is_string($data) || strlen($data) !== $length) {
+            $data = PacketReader::readBody($socket, $length, 1.0);
+            if ($data === false) {
                 return;
             }
 
@@ -75,11 +71,7 @@ class Worker extends AbstractUnixProcess
             if ($expireTime <= hrtime(true) / 1e9) {
                 return;
             }
-            $payload = serialize($reply);
-            if (Protocol::exceedsPackageSize(strlen($payload), $maxPackageSize)) {
-                $payload = Protocol::RESPONSE_TOO_LARGE;
-            }
-            $packet = Protocol::pack($payload);
+            $packet = Protocol::pack(serialize($reply));
             $remaining = $expireTime - hrtime(true) / 1e9;
             if ($remaining > 0) {
                 $socket->sendAll($packet, $remaining);

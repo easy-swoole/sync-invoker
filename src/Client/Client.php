@@ -14,7 +14,6 @@ class Client
     public function __construct(
         private array $sockets,
         private Table $workerTable,
-        private int $maxPackageSize,
         private float $timeout
     ) {
     }
@@ -31,21 +30,12 @@ class Client
         $command->setArg($arguments);
         $command->setAction($name);
         $command->setExpireTime($expireTime);
-        $payload = serialize($command);
-
+        $packet = Protocol::pack(serialize($command));
         $remaining = $expireTime - hrtime(true) / 1e9;
         if ($remaining <= 0) {
             return $this->timeoutResponse();
         }
-        if (Protocol::exceedsPackageSize(strlen($payload), $this->maxPackageSize)) {
-            return new Response(ResponseStatus::PackageTooLarge, msg: 'Request exceeds maxPackageSize');
-        }
-        $packet = Protocol::pack($payload);
-        $remaining = $expireTime - hrtime(true) / 1e9;
-        if ($remaining <= 0) {
-            return $this->timeoutResponse();
-        }
-        $client = new UnixClient($this->sockets[$workerId], $this->maxPackageSize, $remaining);
+        $client = new UnixClient($this->sockets[$workerId], $remaining);
         try {
             if (!$client->isConnected()) {
                 return $this->socketFailure($client, $expireTime, 'connect');
@@ -80,14 +70,6 @@ class Client
     private function decodeResponse(string $data, float $expireTime): Response
     {
         $payload = Protocol::unpack($data);
-        $sizeError = match ($payload) {
-            Protocol::REQUEST_TOO_LARGE => 'Request exceeds worker maxPackageSize',
-            Protocol::RESPONSE_TOO_LARGE => 'Response exceeds worker maxPackageSize',
-            default => null,
-        };
-        if ($sizeError !== null) {
-            return new Response(ResponseStatus::PackageTooLarge, msg: $sizeError);
-        }
         $result = @unserialize($payload);
         if (hrtime(true) / 1e9 >= $expireTime) {
             return $this->timeoutResponse();

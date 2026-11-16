@@ -14,7 +14,6 @@ class Config extends SplBean
     protected int $maxExecuteNum = 0;
     protected string $tempDir;
     protected AbstractDriver $driver;
-    protected int $maxPackageSize = 1024*1024*2;
     /** @var callable|null */
     protected mixed $onWorkerStart = null;
 
@@ -59,16 +58,6 @@ class Config extends SplBean
     public function setDriver(AbstractDriver $driver): void
     {
         $this->driver = $driver;
-    }
-
-    public function getMaxPackageSize(): int
-    {
-        return $this->maxPackageSize;
-    }
-
-    public function setMaxPackageSize(int $maxPackageSize): void
-    {
-        $this->maxPackageSize = $maxPackageSize;
     }
 
     /**

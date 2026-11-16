@@ -80,7 +80,6 @@ class SyncInvoker
         return new Client(
             $sockets,
             $this->workerTable,
-            $this->getConfig()->getMaxPackageSize(),
             $timeout
         );
     }

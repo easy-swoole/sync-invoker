@@ -8,18 +8,13 @@ class Protocol
 {
     public const HEADER_SIZE = 4;
 
-    // Single-byte replies reserved for size errors. Serialized PHP values are longer.
-    public const REQUEST_TOO_LARGE = 'R';
-    public const RESPONSE_TOO_LARGE = 'S';
-
-    public static function exceedsPackageSize(int $bodyLength, int $maxPackageSize): bool
-    {
-        return $bodyLength + self::HEADER_SIZE > $maxPackageSize;
-    }
-
     public static function pack(string $data): string
     {
-        return pack('N', strlen($data)).$data;
+        $length = strlen($data);
+        if ($length > 0xffffffff) {
+            throw new \LengthException('Packet body exceeds the 32-bit protocol length');
+        }
+        return pack('N', $length) . $data;
     }
 
     public static function packDataLength(string $head): int

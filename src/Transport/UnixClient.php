@@ -1,30 +1,19 @@
 <?php
 
-
 namespace EasySwoole\SyncInvoker\Transport;
 
-
 use EasySwoole\SyncInvoker\Protocol\Protocol;
-use Swoole\Coroutine\Client;
+use Swoole\Coroutine\Socket;
 
 class UnixClient
 {
-    private Client $client;
+    private Socket $socket;
+    private bool $connected;
 
-    public function __construct(string $unixSock, int $maxPackageSize, float $timeout)
+    public function __construct(string $unixSock, private float $timeout)
     {
-        $this->client = new Client(SWOOLE_UNIX_STREAM);
-        $this->client->set(
-            [
-                'open_length_check' => true,
-                'package_length_type'   => 'N',
-                'package_length_offset' => 0,
-                'package_body_offset'   => Protocol::HEADER_SIZE,
-                'package_max_length'    => $maxPackageSize,
-                'timeout'=>$timeout
-            ]
-        );
-        $this->client->connect($unixSock, 0, $timeout);
+        $this->socket = new Socket(AF_UNIX, SOCK_STREAM, 0);
+        $this->connected = $this->socket->connect($unixSock, 0, $timeout);
     }
 
     public function __destruct()
@@ -34,36 +23,45 @@ class UnixClient
 
     public function isConnected(): bool
     {
-        return $this->client->isConnected();
+        return $this->connected;
     }
 
     public function close(): void
     {
-        if($this->client->isConnected()){
-            $this->client->close();
+        if ($this->connected) {
+            $this->connected = false;
+            $this->socket->close();
         }
     }
 
     public function send(string $rawData, float $timeout = 0): int|false
     {
-        if($this->client->isConnected()){
-            return $this->client->send($rawData, $timeout);
-        }else{
+        if (!$this->connected) {
             return false;
         }
+        return $this->socket->sendAll($rawData, $timeout ?: $this->timeout);
     }
 
     public function recv(float $timeout = 0.1): string|false
     {
-        if($this->client->isConnected()){
-            return $this->client->recv($timeout);
-        }else{
+        if (!$this->connected) {
             return false;
         }
+
+        $timeout = $timeout ?: $this->timeout;
+        $deadline = hrtime(true) / 1e9 + $timeout;
+        $header = $this->socket->recvAll(Protocol::HEADER_SIZE, $timeout);
+        if ($header === false || strlen($header) !== Protocol::HEADER_SIZE) {
+            return false;
+        }
+
+        $length = Protocol::packDataLength($header);
+        $body = PacketReader::readBody($this->socket, $length, $deadline - hrtime(true) / 1e9);
+        return $body === false ? false : $header . $body;
     }
 
     public function getErrorCode(): int
     {
-        return $this->client->errCode;
+        return $this->socket->errCode;
     }
 }

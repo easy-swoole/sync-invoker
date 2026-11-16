@@ -57,7 +57,7 @@ final class WorkerQueueTest extends TestCase
             $reply = $queued->recv(2.0);
             self::assertTrue($reply === '' || $reply === false);
 
-            $client = new Client([0 => $path], $table, 4096, 2.0);
+            $client = new Client([0 => $path], $table, 2.0);
             self::assertEquals(new Response(ResponseStatus::Ok, 'probe'), $client->record('probe'));
             self::assertSame(['hold started', 'hold finished', 'probe'], $driver->events);
         });
@@ -74,7 +74,7 @@ final class WorkerQueueTest extends TestCase
             self::assertSame(['hold started'], $driver->events);
 
             $driver->release->push(true);
-            $client = new Client([0 => $path], $table, 4096, 2.0);
+            $client = new Client([0 => $path], $table, 2.0);
             self::assertEquals(new Response(ResponseStatus::Ok, 'probe'), $client->record('probe'));
             self::assertSame(['hold started', 'hold finished', 'probe'], $driver->events);
         });
@@ -83,7 +83,7 @@ final class WorkerQueueTest extends TestCase
     public function testWaitingForReplyUsesBudgetLeftAfterSerializingRequest(): void
     {
         $this->withWorker(function (string $path, Table $table, QueueDriver $driver): void {
-            $client = new Client([0 => $path], $table, 4096, 0.6);
+            $client = new Client([0 => $path], $table, 0.6);
             $start = hrtime(true);
             $response = $client->hold(new SlowRequestArgument());
             $elapsed = (hrtime(true) - $start) / 1e9;
@@ -93,7 +93,7 @@ final class WorkerQueueTest extends TestCase
             self::assertLessThan(0.85, $elapsed);
 
             $driver->release->push(true);
-            $probe = new Client([0 => $path], $table, 4096, 2.0);
+            $probe = new Client([0 => $path], $table, 2.0);
             self::assertEquals(new Response(ResponseStatus::Ok, 'probe'), $probe->record('probe'));
         });
     }
@@ -101,11 +101,11 @@ final class WorkerQueueTest extends TestCase
     public function testResponseDistinguishesBusinessValuesFromConnectionFailure(): void
     {
         $this->withWorker(function (string $path, Table $table): void {
-            $client = new Client([0 => $path], $table, 4096, 2.0);
+            $client = new Client([0 => $path], $table, 2.0);
             self::assertEquals(new Response(ResponseStatus::Ok, null), $client->returnValue(null));
             self::assertEquals(new Response(ResponseStatus::Ok, false), $client->returnValue(false));
 
-            $unreachableClient = new Client([0 => $path . '.missing'], $table, 4096, 2.0);
+            $unreachableClient = new Client([0 => $path . '.missing'], $table, 2.0);
             $failure = $unreachableClient->returnValue(null);
             self::assertSame(ResponseStatus::TransportError, $failure->status);
             self::assertNull($failure->result);
@@ -113,60 +113,30 @@ final class WorkerQueueTest extends TestCase
         });
     }
 
-    public function testClientRejectsOversizedRequestBeforeConnecting(): void
-    {
-        $this->withWorker(function (string $path, Table $table, QueueDriver $driver): void {
-            $client = new Client([0 => $path . '.missing'], $table, 512, 2.0);
-            $reply = $client->record(str_repeat('x', 512));
-
-            self::assertEquals(new Response(ResponseStatus::PackageTooLarge, msg: 'Request exceeds maxPackageSize'), $reply);
-            self::assertSame([], $driver->events);
-        }, 512);
-    }
-
-    public function testWorkerRejectsOversizedRequestFromHeaderAlone(): void
-    {
-        $this->withWorker(function (string $path, Table $table, QueueDriver $driver): void {
-            $client = new UnixClient($path, 512, 2.0);
-            $header = pack('N', 513 - Protocol::HEADER_SIZE);
-            self::assertSame(strlen($header), $client->send($header, 2.0));
-            self::assertSame(Protocol::pack(Protocol::REQUEST_TOO_LARGE), $client->recv(0.5));
-            $client->close();
-
-            $largerClient = new Client([0 => $path], $table, 1024, 2.0);
-            $reply = $largerClient->record(str_repeat('x', 512));
-            self::assertEquals(new Response(ResponseStatus::PackageTooLarge, msg: 'Request exceeds worker maxPackageSize'), $reply);
-            self::assertSame([], $driver->events);
-        }, 512);
-    }
-
-    public function testWorkerRejectsOversizedResponseAndAllowsExactLimit(): void
+    public function testLargeRequestAndResponseCanRoundTrip(): void
     {
         $this->withWorker(function (string $path, Table $table): void {
-            $client = new Client([0 => $path], $table, 512, 2.0);
-            $atLimit = str_repeat('x', 499);
-            self::assertSame(512, strlen(Protocol::pack(serialize($atLimit))));
-            self::assertEquals(new Response(ResponseStatus::Ok, $atLimit), $client->makeResponse(499));
-            self::assertEquals(
-                new Response(ResponseStatus::PackageTooLarge, msg: 'Response exceeds worker maxPackageSize'),
-                $client->makeResponse(500)
-            );
-            self::assertEquals(new Response(ResponseStatus::Ok, 'probe'), $client->record('probe'));
-        }, 512);
+            $client = new Client([0 => $path], $table, 5.0);
+            $value = str_repeat("abc\0", 1024 * 1024);
+
+            $reply = $client->returnValue($value);
+
+            self::assertSame(ResponseStatus::Ok, $reply->status);
+            self::assertSame($value, $reply->result);
+        });
     }
 
-    private function withWorker(callable $test, int $maxPackageSize = 4096): void
+    private function withWorker(callable $test): void
     {
         $directory = sys_get_temp_dir() . '/si-' . bin2hex(random_bytes(5));
         self::assertTrue(mkdir($directory, 0700));
         $path = $directory . '/worker.sock';
         $failure = null;
         try {
-            Coroutine\run(static function () use ($path, $test, $maxPackageSize, &$failure): void {
+            Coroutine\run(static function () use ($path, $test, &$failure): void {
                 $driver = new QueueDriver();
                 $config = new Config();
                 $config->setDriver($driver);
-                $config->setMaxPackageSize($maxPackageSize);
                 $table = new Table(256);
                 $table->column('isAvailable', Table::TYPE_INT, 1);
                 $table->column('pId', Table::TYPE_INT, 8);
@@ -230,7 +200,7 @@ final class WorkerQueueTest extends TestCase
     private function startHoldingCall(string $path, Table $table, QueueDriver $driver, float $timeout): Channel
     {
         $reply = new Channel(1);
-        $client = new Client([0 => $path], $table, 4096, $timeout);
+        $client = new Client([0 => $path], $table, $timeout);
         Coroutine::create(static fn () => $reply->push($client->hold()));
         self::assertTrue($driver->started->pop(2.0));
         return $reply;
@@ -243,7 +213,7 @@ final class WorkerQueueTest extends TestCase
         $command->setArg([$value]);
         $command->setExpireTime($expireTime);
 
-        $client = new UnixClient($path, 4096, 2.0);
+        $client = new UnixClient($path, 2.0);
         $packet = Protocol::pack(serialize($command));
         self::assertSame(strlen($packet), $client->send($packet, 2.0));
         return $client;
@@ -279,11 +249,6 @@ final class QueueDriver extends AbstractDriver
         $this->release->pop(3.0);
         $this->events[] = 'hold finished';
         $this->response('held');
-    }
-
-    public function makeResponse(int $size): void
-    {
-        $this->response(str_repeat('x', $size));
     }
 
     public function returnValue(mixed $value): void

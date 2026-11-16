@@ -23,7 +23,6 @@ final class ClientWorkerSelectionTest extends TestCase
         $this->client = new Client(
             [0 => '/tmp/worker-0.sock', 1 => '/tmp/worker-1.sock'],
             $this->table,
-            1024,
             1.0
         );
     }
